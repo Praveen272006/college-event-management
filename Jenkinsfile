@@ -2,36 +2,40 @@ pipeline {
     agent any
 
     environment {
-        DOCKER_IMAGE = 'praveen272006/college-event-management'
-        DOCKER_TAG = 'latest'
+        IMAGE_NAME = 'praveen272006/college-event-management'
+        DEPLOYMENT_NAME = 'college-event-deployment'
+        CONTAINER_NAME = 'college-event-container'
+        K8S_SERVICE = 'college-event-service'
     }
 
     stages {
 
         stage('Checkout') {
             steps {
-                echo 'Checking out source code from GitHub'
+                echo 'Checking out project source code'
                 checkout scm
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                echo 'Building Docker image'
-
-                bat 'docker build -t %DOCKER_IMAGE%:%DOCKER_TAG% .'
+                bat '''
+                    docker build -t %IMAGE_NAME%:latest .
+                    if errorlevel 1 exit /b 1
+                '''
             }
         }
 
-        stage('Verify Docker Image') {
+        stage('Test Docker Image') {
             steps {
-                echo 'Verifying Docker image'
-
-                bat 'docker images %DOCKER_IMAGE%'
+                bat '''
+                    docker image inspect %IMAGE_NAME%:latest
+                    if errorlevel 1 exit /b 1
+                '''
             }
         }
 
-        stage('Login and Push to Docker Hub') {
+        stage('Push Docker Image') {
             steps {
                 withCredentials([
                     usernamePassword(
@@ -42,43 +46,60 @@ pipeline {
                 ]) {
                     bat '''
                         @echo off
-                        echo Logging in to Docker Hub...
                         echo %DOCKER_PASS% | docker login -u "%DOCKER_USER%" --password-stdin
-
                         if errorlevel 1 exit /b 1
 
-                        echo Pushing Docker image...
-                        docker push %DOCKER_IMAGE%:%DOCKER_TAG%
-
+                        docker push %IMAGE_NAME%:latest
                         if errorlevel 1 exit /b 1
 
-                        echo Docker image pushed successfully.
                         docker logout
                     '''
                 }
             }
         }
 
-        stage('Verify Deployment Image') {
+        stage('Deploy to Kubernetes') {
             steps {
-                echo 'Checking the Kubernetes deployment configuration'
+                bat '''
+                    kubectl set image deployment/%DEPLOYMENT_NAME% %CONTAINER_NAME%=%IMAGE_NAME%:latest
+                    if errorlevel 1 exit /b 1
 
-                bat 'kubectl get deployment college-event-deployment'
+                    kubectl rollout status deployment/%DEPLOYMENT_NAME% --timeout=120s
+                    if errorlevel 1 exit /b 1
+                '''
+            }
+        }
+
+        stage('Verify Deployment') {
+            steps {
+                bat '''
+                    kubectl get deployments
+                    kubectl get pods
+                    kubectl get services
+                '''
             }
         }
     }
 
     post {
         success {
-            echo 'CI/CD pipeline completed successfully!'
+            echo 'SUCCESS: Website image built, pushed, and deployment updated.'
         }
 
         failure {
-            echo 'CI/CD pipeline failed. Check Console Output.'
+            echo 'FAILURE: Pipeline failed. Checking Kubernetes rollout status.'
+
+            bat '''
+                kubectl rollout status deployment/college-event-deployment --timeout=30s
+            '''
+
+            script {
+                echo 'If deployment fails, inspect the Jenkins console and Kubernetes events.'
+            }
         }
 
         always {
-            echo 'Pipeline execution finished.'
+            echo 'CI/CD pipeline execution completed.'
         }
     }
 }
