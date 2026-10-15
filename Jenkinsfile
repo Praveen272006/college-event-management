@@ -4,21 +4,21 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                echo 'Checking out College Event Management project'
+                echo 'Checking out College Event Management'
                 checkout scm
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                echo 'Building the Docker image'
-                sh 'docker build -t college-event-management:latest .'
+                echo 'Building Docker image'
+                bat 'docker build -t college-event-management:latest .'
             }
         }
 
-        stage('Pipeline Complete') {
+        stage('Verify Docker Image') {
             steps {
-                echo 'Build stage completed successfully'
+                bat 'docker images college-event-management'
             }
         }
     }
